@@ -11,7 +11,7 @@ from collections import defaultdict
 
 TOKEN = os.getenv("TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
-ADMIN_ID = 123456789  # ←←← ИЗМЕНИ НА СВОЙ TELEGRAM ID !!!
+ADMIN_ID = 5086735061  # Твой ID
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -38,9 +38,17 @@ async def init_db():
                             bot_response TEXT)''')
         await db.commit()
 
-main_menu = ReplyKeyboardMarkup(keyboard=[
+# Меню для обычных пользователей
+user_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 99⭐")],
     [KeyboardButton(text="🎭 Ролевая игра")],
+], resize_keyboard=True)
+
+# Меню для админа
+admin_menu = ReplyKeyboardMarkup(keyboard=[
+    [KeyboardButton(text="💎 Купить подписку за 99⭐")],
+    [KeyboardButton(text="🎭 Ролевая игра")],
+    [KeyboardButton(text="📊 Статистика")],
 ], resize_keyboard=True)
 
 # ===================== AI =====================
@@ -50,8 +58,8 @@ async def ask_grok(prompt: str):
             async with session.post(
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.82, "max_tokens": 1100},
-                timeout=50
+                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.85, "max_tokens": 950},
+                timeout=45
             ) as resp:
                 if resp.status != 200:
                     return "Давай чуть позже, сейчас немного тяжело."
@@ -122,13 +130,16 @@ async def start(message: types.Message):
     user_mode[user_id] = "normal"
     roleplay_exit_counter[user_id] = 0
     
+    # Разные меню для админа и пользователей
+    menu = admin_menu if user_id == ADMIN_ID else user_menu
+    
     await message.answer(
         "Привет! ❤️\n\n"
-        "Я — твой личный собеседник, который всегда рядом. "
+        "Я — твой личный собеседник, который всегда на твоей стороне. "
         "Я могу быть мягким и понимающим, проводить тесты на отношения, "
         "разбирать сложные ситуации, входить в любые роли и просто говорить по душам.\n\n"
         "Пиши мне всё, что у тебя на сердце — я слушаю и помогаю.",
-        reply_markup=main_menu
+        reply_markup=menu
     )
 
 # ===================== КРАСИВАЯ ПОДПИСКА =====================
@@ -167,6 +178,27 @@ async def successful_payment(message: types.Message):
                         (message.from_user.id, until))
         await db.commit()
     await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки на 7 дней ❤️")
+
+# ===================== СТАТИСТИКА (только для админа) =====================
+@dp.message(F.text == "📊 Статистика")
+async def admin_stats(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    async with aiosqlite.connect('psychology.db') as db:
+        async with db.execute("SELECT COUNT(*) FROM users") as c:
+            total = (await c.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM users WHERE subscribed_until > ?", 
+                            (datetime.now().isoformat(),)) as c:
+            premium = (await c.fetchone())[0]
+    
+    await message.answer(
+        f"📊 <b>Статистика бота</b>\n\n"
+        f"Всего пользователей: <b>{total}</b>\n"
+        f"С активной подпиской: <b>{premium}</b>\n"
+        f"Без подписки: <b>{total - premium}</b>",
+        parse_mode="HTML"
+    )
 
 # ===================== РОЛЕВАЯ ИГРА =====================
 @dp.message(F.text == "🎭 Ролевая игра")
@@ -207,14 +239,11 @@ async def ai_psychologist(message: types.Message):
 Продолжай ролевую игру естественно."""
     else:
         prompt = f"""Ты — {role}, очень умный, глубокий и эмоционально чуткий человек противоположного пола.
-Ты ведёшь длинный, осмысленный разговор. Ты прекрасно помнишь весь предыдущий контекст и никогда его не теряешь.
-
+Ты ведёшь длинный, связный разговор. Ты прекрасно помнишь весь предыдущий контекст.
 Контекст разговора:
 {context_str}
-
-Пользователь только что написал: "{message.text}"
-
-Отвечай естественно, последовательно, с отличной памятью. Будь максимально похож на настоящего, высокоинтеллектуального собеседника."""
+Пользователь написал: "{message.text}"
+Отвечай естественно, последовательно и с памятью о предыдущем."""
 
     response = await ask_grok(prompt)
 
