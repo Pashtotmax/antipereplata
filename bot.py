@@ -167,28 +167,6 @@ async def successful_payment(message: types.Message):
         await db.commit()
     await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки на 7 дней ❤️")
 
-# ===================== СТАТИСТИКА (только для тебя) =====================
-@dp.message(F.text == "📊 Статистика")
-async def admin_stats(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    async with aiosqlite.connect('psychology.db') as db:
-        async with db.execute("SELECT COUNT(*) FROM users") as c:
-            total_users = (await c.fetchone())[0]
-        async with db.execute("SELECT COUNT(*) FROM users WHERE subscribed_until > ?", 
-                            (datetime.now().isoformat(),)) as c:
-            premium_users = (await c.fetchone())[0]
-    
-    await message.answer(
-        f"📊 <b>Статистика бота</b>\n\n"
-        f"Всего пользователей: <b>{total_users}</b>\n"
-        f"С активной подпиской: <b>{premium_users}</b>\n"
-        f"Без подписки: <b>{total_users - premium_users}</b>\n\n"
-        f"Обновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-        parse_mode="HTML"
-    )
-
 # ===================== РОЛЕВАЯ ИГРА =====================
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
@@ -255,12 +233,9 @@ async def main():
     await init_db()
     print("🚀 AI Психолог Отношений запущен!")
     
-    # Улучшенная очистка Telegram (это решает ConflictError)
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await asyncio.sleep(2)   # важная пауза
-    except Exception as e:
-        print("Webhook cleanup error:", e)
+    # Улучшенная очистка перед запуском polling
+    await bot.delete_webhook(drop_pending_updates=True)
+    await asyncio.sleep(1)  # Небольшая пауза для стабильности
     
     await dp.start_polling(bot)
 
