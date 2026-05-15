@@ -38,9 +38,16 @@ async def init_db():
                             bot_response TEXT)''')
         await db.commit()
 
+# ===================== МЕНЮ =====================
 main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 99⭐")],
     [KeyboardButton(text="🎭 Ролевая игра")],
+], resize_keyboard=True)
+
+admin_menu = ReplyKeyboardMarkup(keyboard=[
+    [KeyboardButton(text="💎 Купить подписку за 99⭐")],
+    [KeyboardButton(text="🎭 Ролевая игра")],
+    [KeyboardButton(text="📊 Статистика")],
 ], resize_keyboard=True)
 
 # ===================== AI =====================
@@ -122,13 +129,15 @@ async def start(message: types.Message):
     user_mode[user_id] = "normal"
     roleplay_exit_counter[user_id] = 0
     
+    menu = admin_menu if user_id == ADMIN_ID else main_menu
+    
     await message.answer(
         "Привет! ❤️\n\n"
         "Я — твой личный собеседник, который всегда на твоей стороне. "
         "Я могу быть мягким и понимающим, проводить тесты на отношения, "
         "разбирать сложные ситуации, входить в любые роли и просто говорить по душам.\n\n"
         "Пиши мне всё, что у тебя на сердце — я слушаю и помогаю.",
-        reply_markup=main_menu
+        reply_markup=menu
     )
 
 # ===================== КРАСИВАЯ ПОДПИСКА =====================
@@ -167,6 +176,28 @@ async def successful_payment(message: types.Message):
                         (message.from_user.id, until))
         await db.commit()
     await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки на 7 дней ❤️")
+
+# ===================== СТАТИСТИКА (только для тебя) =====================
+@dp.message(F.text == "📊 Статистика")
+async def admin_stats(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    async with aiosqlite.connect('psychology.db') as db:
+        async with db.execute("SELECT COUNT(*) FROM users") as c:
+            total_users = (await c.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM users WHERE subscribed_until > ?", 
+                            (datetime.now().isoformat(),)) as c:
+            premium_users = (await c.fetchone())[0]
+    
+    await message.answer(
+        f"📊 <b>Статистика бота</b>\n\n"
+        f"Всего пользователей: <b>{total_users}</b>\n"
+        f"С активной подпиской: <b>{premium_users}</b>\n"
+        f"Без подписки: <b>{total_users - premium_users}</b>\n\n"
+        f"Обновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+        parse_mode="HTML"
+    )
 
 # ===================== РОЛЕВАЯ ИГРА =====================
 @dp.message(F.text == "🎭 Ролевая игра")
