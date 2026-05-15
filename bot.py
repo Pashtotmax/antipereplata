@@ -38,9 +38,16 @@ async def init_db():
                             bot_response TEXT)''')
         await db.commit()
 
+# ===================== МЕНЮ =====================
 main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 99⭐")],
     [KeyboardButton(text="🎭 Ролевая игра")],
+], resize_keyboard=True)
+
+admin_menu = ReplyKeyboardMarkup(keyboard=[
+    [KeyboardButton(text="💎 Купить подписку за 99⭐")],
+    [KeyboardButton(text="🎭 Ролевая игра")],
+    [KeyboardButton(text="📊 Статистика")],
 ], resize_keyboard=True)
 
 # ===================== AI =====================
@@ -74,7 +81,6 @@ async def get_opposite_gender(user_id: int, message_text: str):
             row = await cursor.fetchone()
             if row and row[0]:
                 return row[0]
-
     text_lower = message_text.lower()
     if any(word in text_lower for word in ["я девушка", "я женщина", "я девочка", "подруга"]):
         gender = "male"
@@ -82,7 +88,6 @@ async def get_opposite_gender(user_id: int, message_text: str):
         gender = "female"
     else:
         gender = None
-
     if gender:
         async with aiosqlite.connect('psychology.db') as db:
             await db.execute("UPDATE users SET gender = ? WHERE user_id = ?", (gender, user_id))
@@ -100,7 +105,6 @@ async def can_send_message(user_id: int):
                                (user_id, datetime.now().date().isoformat()))
                 await db.commit()
                 return True, 5
-
             subscribed_until, messages_today, last_reset = row
             today = datetime.now().date().isoformat()
             if last_reset != today:
@@ -108,7 +112,6 @@ async def can_send_message(user_id: int):
                                (today, user_id))
                 await db.commit()
                 messages_today = 0
-
             is_premium = subscribed_until and datetime.fromisoformat(subscribed_until) > datetime.now()
             limit = 150 if is_premium else 5
             return messages_today < limit, limit - messages_today
@@ -121,13 +124,16 @@ async def start(message: types.Message):
     user_context[user_id].clear()
     user_mode[user_id] = "normal"
     roleplay_exit_counter[user_id] = 0
+    
+    menu = admin_menu if user_id == ADMIN_ID else main_menu
+    
     await message.answer(
         "Привет! ❤️\n\n"
         "Я — твой личный собеседник, который всегда на твоей стороне. "
         "Я могу быть мягким и понимающим, проводить тесты на отношения, "
         "разбирать сложные ситуации, входить в любые роли и просто говорить по душам.\n\n"
         "Пиши мне всё, что у тебя на сердце — я слушаю и помогаю.",
-        reply_markup=main_menu
+        reply_markup=menu
     )
 
 # ===================== КРАСИВАЯ ПОДПИСКА =====================
@@ -135,13 +141,13 @@ async def start(message: types.Message):
 async def buy_subscription(message: types.Message):
     await message.answer_photo(
         photo="https://i.imgur.com/OiaFA.jpg",
-        caption="<b>❤️ Специальное предложение для тебя</b>\n\n"
-                "Подписка <b>«Близкий Психолог»</b>\n\n"
+        caption="❤️ Специальное предложение для тебя\n\n"
+                "Подписка «Близкий Психолог»\n\n"
                 "• 150 сообщений каждый день\n"
                 "• Я всегда на твоей стороне\n"
                 "• Глубокие и честные разговоры\n"
                 "• Автоматическое продление\n\n"
-                "Всего за <b>99 Telegram Stars</b> в месяц — меньше, чем чашка кофе ☕\n\n"
+                "Всего за 99 Telegram Stars в месяц — меньше, чем чашка кофе ☕\n\n"
                 "Готов открыть сердце и получить настоящую поддержку?",
         parse_mode="HTML"
     )
@@ -167,6 +173,28 @@ async def successful_payment(message: types.Message):
         await db.commit()
     await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки на 7 дней ❤️")
 
+# ===================== СТАТИСТИКА (только для тебя) =====================
+@dp.message(F.text == "📊 Статистика")
+async def admin_stats(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    async with aiosqlite.connect('psychology.db') as db:
+        async with db.execute("SELECT COUNT(*) FROM users") as c:
+            total_users = (await c.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM users WHERE subscribed_until > ?", 
+                            (datetime.now().isoformat(),)) as c:
+            premium_users = (await c.fetchone())[0]
+    
+    await message.answer(
+        f"📊 Статистика бота\n\n"
+        f"Всего пользователей: {total_users}\n"
+        f"С активной подпиской: {premium_users}\n"
+        f"Без подписки: {total_users - premium_users}\n\n"
+        f"Обновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+        parse_mode="HTML"
+    )
+
 # ===================== РОЛЕВАЯ ИГРА =====================
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
@@ -178,51 +206,31 @@ async def role_play(message: types.Message):
 @dp.message()
 async def ai_psychologist(message: types.Message):
     user_id = message.from_user.id
-
     can_send, remaining = await can_send_message(user_id)
     if not can_send:
         await message.answer("Сегодня ты уже использовал все бесплатные сообщения.\nОформи подписку за 99⭐.", reply_markup=main_menu)
         return
-
     user_context[user_id].append(f"Пользователь: {message.text}")
     if len(user_context[user_id]) > 12:
         user_context[user_id].pop(0)
-
     context_str = "\n".join(user_context[user_id][-12:])
-
     user_gender = await get_opposite_gender(user_id, message.text)
     role = "мужчина" if user_gender == "female" else "женщина" if user_gender == "male" else "человек"
-
     async with aiosqlite.connect('psychology.db') as db:
         await db.execute("UPDATE users SET messages_today = messages_today + 1 WHERE user_id = ?", (user_id,))
         await db.commit()
-
     thinking = await message.answer("Пишу...")
-
     if user_mode[user_id] == "roleplay":
-        prompt = f"""Ты — {role}, живой, тёплый и немного игривый человек противоположного пола.
-Говори живо, с эмоциями, но не переигрывай.
-Пользователь написал: "{message.text}"
-Продолжай ролевую игру естественно."""
+        prompt = f"""Ты — {role}, живой, тёплый и немного игривый человек противоположного пола. Говори живо, с эмоциями, но не переигрывай. Пользователь написал: "{message.text}" Продолжай ролевую игру естественно."""
     else:
-        prompt = f"""Ты — {role}, очень умный, глубокий и эмоционально чуткий человек противоположного пола.
-Ты ведёшь длинный, связный разговор. Ты прекрасно помнишь весь предыдущий контекст.
-Контекст разговора:
-{context_str}
-Пользователь написал: "{message.text}"
-Отвечай естественно, последовательно и с памятью о предыдущем."""
-
+        prompt = f"""Ты — {role}, очень умный, глубокий и эмоционально чуткий человек противоположного пола. Ты ведёшь длинный, связный разговор. Ты прекрасно помнишь весь предыдущий контекст. Контекст разговора: {context_str} Пользователь написал: "{message.text}" Отвечай естественно, последовательно и с памятью о предыдущем."""
     response = await ask_grok(prompt)
-
     await thinking.delete()
     await message.answer(response)
-
     await save_to_history(user_id, message.text, response)
-
     user_context[user_id].append(f"Ты: {response}")
     if len(user_context[user_id]) > 14:
         user_context[user_id].pop(0)
-
     lower_text = message.text.lower()
     if any(word in lower_text for word in ["представь", "роль", "поиграем", "как будто", "давай сыграем"]):
         user_mode[user_id] = "roleplay"
@@ -233,9 +241,9 @@ async def main():
     await init_db()
     print("🚀 AI Психолог Отношений запущен!")
     
-    # Улучшенная очистка перед запуском polling
+    # Исправление TelegramConflictError
     await bot.delete_webhook(drop_pending_updates=True)
-    await asyncio.sleep(1)  # Небольшая пауза для стабильности
+    await asyncio.sleep(2)
     
     await dp.start_polling(bot)
 
