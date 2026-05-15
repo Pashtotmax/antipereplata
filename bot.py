@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import aiosqlite
 import aiohttp
 import traceback
+from collections import defaultdict
 
 TOKEN = os.getenv("TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
@@ -14,6 +15,9 @@ ADMIN_ID = 123456789  # ←←← ИЗМЕНИ НА СВОЙ TELEGRAM ID !!!
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+# Хранилище последних сообщений для контекста (в памяти)
+user_context = defaultdict(list)
 
 # ===================== БАЗА =====================
 async def init_db():
@@ -48,8 +52,8 @@ async def ask_grok(prompt: str):
             async with session.post(
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.85, "max_tokens": 900},
-                timeout=40
+                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.85, "max_tokens": 950},
+                timeout=45
             ) as resp:
                 if resp.status != 200:
                     return "Давай чуть позже, сейчас немного тяжело."
@@ -115,6 +119,7 @@ async def can_send_message(user_id: int):
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await init_db()
+    user_context[message.from_user.id].clear()  # Очищаем контекст при /start
     await message.answer(
         "Привет! Я здесь, чтобы помочь тебе с отношениями и чувствами ❤️\n\n"
         "Пиши мне всё, что на душе.",
@@ -149,7 +154,7 @@ async def buy_subscription(message: types.Message):
         start_parameter="sub"
     )
 
-# ===================== КНОПКА РАЗБОРА СИТУАЦИИ =====================
+# ===================== РАЗБОР СИТУАЦИИ =====================
 @dp.message(F.text == "📖 Разбор ситуации")
 async def situation_analysis(message: types.Message):
     await message.answer(
@@ -158,7 +163,7 @@ async def situation_analysis(message: types.Message):
         "Я внимательно проанализирую и дам честный совет."
     )
 
-# ===================== КНОПКА ТЕСТОВ =====================
+# ===================== ТЕСТЫ =====================
 @dp.message(F.text == "🧪 Пройти тест")
 async def tests(message: types.Message):
     await message.answer(
@@ -168,11 +173,12 @@ async def tests(message: types.Message):
         "Напиши цифру 1 или 2."
     )
 
-# ===================== ОСТАЛЬНЫЕ КНОПКИ =====================
+# ===================== РОЛЕВАЯ ИГРА =====================
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
     await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.")
 
+# ===================== ИСТОРИЯ =====================
 @dp.message(F.text == "📜 Моя история")
 async def show_history(message: types.Message):
     async with aiosqlite.connect('psychology.db') as db:
@@ -187,11 +193,16 @@ async def show_history(message: types.Message):
         text += f"📅 {date[:10]}\nТы: {user_msg[:80]}...\nЯ: {bot_msg[:80]}...\n\n"
     await message.answer(text)
 
-# ===================== ОСНОВНОЙ ЧАТ =====================
+# ===================== ОСНОВНОЙ ЧАТ (с улучшенной памятью + голосовые) =====================
+@dp.message(F.voice)
+async def voice_handler(message: types.Message):
+    await message.answer("Я услышал твой голос ❤️\n\nПока что я лучше работаю с текстом. Можешь написать своими словами, что ты хотел сказать?")
+
 @dp.message()
 async def ai_psychologist(message: types.Message):
-    can_send, remaining = await can_send_message(message.from_user.id)
- 
+    user_id = message.from_user.id
+
+    can_send, remaining = await can_send_message(user_id)
     if not can_send:
         await message.answer(
             "Сегодня ты уже использовал все бесплатные сообщения.\n\n"
@@ -200,28 +211,43 @@ async def ai_psychologist(message: types.Message):
         )
         return
 
-    user_gender = await get_opposite_gender(message.from_user.id, message.text)
+    # Добавляем текущее сообщение в контекст
+    user_context[user_id].append(f"Пользователь: {message.text}")
+    if len(user_context[user_id]) > 6:
+        user_context[user_id].pop(0)
+
+    context_str = "\n".join(user_context[user_id][-6:])
+
+    user_gender = await get_opposite_gender(user_id, message.text)
     role = "мужчина" if user_gender == "female" else "женщина" if user_gender == "male" else "человек"
 
     async with aiosqlite.connect('psychology.db') as db:
-        await db.execute("UPDATE users SET messages_today = messages_today + 1 WHERE user_id = ?", (message.from_user.id,))
+        await db.execute("UPDATE users SET messages_today = messages_today + 1 WHERE user_id = ?", (user_id,))
         await db.commit()
 
     thinking = await message.answer("Пишу...")
 
     prompt = f"""Ты — {role}, мягкий, внимательный и понимающий человек противоположного пола.
-Ты ведёшь долгий душевный разговор. Хорошо помни предыдущий контекст.
-Говори спокойно, искренне и с теплом.
-Не упоминай, что ты психолог или ИИ.
+Ты ведёшь долгий душевный разговор. Хорошо помни весь предыдущий контекст.
+
+Предыдущий контекст:
+{context_str}
+
 Пользователь написал: "{message.text}"
-Ответь ему мягко, рассудительно и поддерживающе, продолжая предыдущий разговор."""
+
+Ответь ему мягко, искренне и поддерживающе, продолжая разговор."""
 
     response = await ask_grok(prompt)
  
     await thinking.delete()
     await message.answer(response)
 
-    await save_to_history(message.from_user.id, message.text, response)
+    await save_to_history(user_id, message.text, response)
+
+    # Обновляем контекст
+    user_context[user_id].append(f"Ты: {response}")
+    if len(user_context[user_id]) > 8:
+        user_context[user_id].pop(0)
 
     # Авто-предложения
     lower_text = message.text.lower()
