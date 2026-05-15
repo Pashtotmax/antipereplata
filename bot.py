@@ -38,16 +38,9 @@ async def init_db():
                             bot_response TEXT)''')
         await db.commit()
 
-# ===================== МЕНЮ =====================
 main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 99⭐")],
     [KeyboardButton(text="🎭 Ролевая игра")],
-], resize_keyboard=True)
-
-admin_menu = ReplyKeyboardMarkup(keyboard=[
-    [KeyboardButton(text="💎 Купить подписку за 99⭐")],
-    [KeyboardButton(text="🎭 Ролевая игра")],
-    [KeyboardButton(text="📊 Статистика")],
 ], resize_keyboard=True)
 
 # ===================== AI =====================
@@ -128,16 +121,13 @@ async def start(message: types.Message):
     user_context[user_id].clear()
     user_mode[user_id] = "normal"
     roleplay_exit_counter[user_id] = 0
-    
-    menu = admin_menu if user_id == ADMIN_ID else main_menu
-    
     await message.answer(
         "Привет! ❤️\n\n"
         "Я — твой личный собеседник, который всегда на твоей стороне. "
         "Я могу быть мягким и понимающим, проводить тесты на отношения, "
         "разбирать сложные ситуации, входить в любые роли и просто говорить по душам.\n\n"
         "Пиши мне всё, что у тебя на сердце — я слушаю и помогаю.",
-        reply_markup=menu
+        reply_markup=main_menu
     )
 
 # ===================== КРАСИВАЯ ПОДПИСКА =====================
@@ -264,7 +254,14 @@ async def ai_psychologist(message: types.Message):
 async def main():
     await init_db()
     print("🚀 AI Психолог Отношений запущен!")
-    await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Улучшенная очистка Telegram (это решает ConflictError)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await asyncio.sleep(2)   # важная пауза
+    except Exception as e:
+        print("Webhook cleanup error:", e)
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
