@@ -7,17 +7,19 @@ import asyncio
 import os
 from datetime import datetime, timedelta
 import aiosqlite
-import json
+import aiohttp
 
 TOKEN = os.getenv("TOKEN")
+AI_API_KEY = os.getenv("AI_API_KEY")  # Grok API
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ===================== СОСТОЯНИЯ =====================
-class GoalStates(StatesGroup):
-    waiting_name = State()
-    waiting_category = State()
-    waiting_description = State()
+# ===================== FSM =====================
+class GoalForm(StatesGroup):
+    name = State()
+    category = State()
+    description = State()
 
 # ===================== БАЗА ДАННЫХ =====================
 async def init_db():
@@ -34,46 +36,82 @@ async def init_db():
                             description TEXT,
                             created TEXT,
                             last_done TEXT,
-                            streak INTEGER DEFAULT 0,
-                            completed INTEGER DEFAULT 0)''')
+                            streak INTEGER DEFAULT 0)''')
+        
+        await db.execute('''CREATE TABLE IF NOT EXISTS daily_progress 
+                           (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id INTEGER,
+                            date TEXT,
+                            goal_id INTEGER,
+                            completed INTEGER DEFAULT 0,
+                            note TEXT)''')
         await db.commit()
 
 main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="🎯 Мои цели")],
     [KeyboardButton(text="➕ Добавить цель")],
+    [KeyboardButton(text="📅 Задание на сегодня")],
     [KeyboardButton(text="📊 Статистика")],
     [KeyboardButton(text="👤 Моя подписка")],
     [KeyboardButton(text="💎 Купить подписку 0.99$")],
 ], resize_keyboard=True)
 
-# ===================== ФУНКЦИИ =====================
-async def get_user_goals(user_id: int):
-    async with aiosqlite.connect('coach.db') as db:
-        async with db.execute("SELECT * FROM goals WHERE user_id = ? ORDER BY streak DESC", (user_id,)) as cursor:
-            return await cursor.fetchall()
+# ===================== AI =====================
+async def ask_ai(prompt: str):
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {AI_API_KEY}"},
+                json={
+                    "model": "grok-4.1-fast",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.75,
+                    "max_tokens": 900
+                }
+            ) as resp:
+                data = await resp.json()
+                return data['choices'][0]['message']['content']
+    except:
+        return "Извини, я сейчас немного перегружен. Попробуй позже."
 
-async def add_goal(user_id: int, name: str, category: str, description: str):
+# ===================== ПРОВЕРКА ПОДПИСКИ =====================
+async def is_premium(user_id: int):
     async with aiosqlite.connect('coach.db') as db:
-        await db.execute("INSERT INTO goals (user_id, name, category, description, created) VALUES (?, ?, ?, ?, ?)",
-                        (user_id, name, category, description, datetime.now().isoformat()))
-        await db.commit()
+        async with db.execute("SELECT subscribed_until FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            if row and row[0]:
+                return datetime.fromisoformat(row[0]) > datetime.now()
+    return False
+
+async def get_goals_count(user_id: int):
+    async with aiosqlite.connect('coach.db') as db:
+        async with db.execute("SELECT COUNT(*) FROM goals WHERE user_id = ?", (user_id,)) as cursor:
+            return (await cursor.fetchone())[0]
 
 # ===================== ХЭНДЛЕРЫ =====================
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await init_db()
     await message.answer(
-        "👋 Добро пожаловать в <b>AI Коуч</b>!\n\n"
-        "Я помогу тебе изменить жизнь: формировать привычки, достигать целей и становиться лучше каждый день.",
+        "👋 Добро пожаловать в <b>AI Личный Коуч</b>!\n\n"
+        "Я буду твоим персональным тренером. Давай вместе достигать целей.",
         reply_markup=main_menu, parse_mode="HTML"
     )
 
 @dp.message(F.text == "➕ Добавить цель")
 async def add_goal_start(message: types.Message, state: FSMContext):
-    await message.answer("Напиши название цели (например: «Заниматься спортом 5 раз в неделю», «Читать 20 страниц каждый день»):")
-    await state.set_state(GoalStates.waiting_name)
+    premium = await is_premium(message.from_user.id)
+    count = await get_goals_count(message.from_user.id)
+    
+    if not premium and count >= 2:
+        await message.answer("❌ В бесплатной версии можно создать только 2 цели.\n\nОформи подписку для неограниченного количества целей.")
+        return
 
-@dp.message(GoalStates.waiting_name)
+    await message.answer("Напиши название цели:")
+    await state.set_state(GoalForm.name)
+
+@dp.message(GoalForm.name)
 async def goal_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -83,45 +121,83 @@ async def goal_name(message: types.Message, state: FSMContext):
         [InlineKeyboardButton(text="❤️ Отношения", callback_data="cat_relationships")],
         [InlineKeyboardButton(text="🧠 Саморазвитие", callback_data="cat_self")],
     ])
-    await message.answer("Выбери категорию цели:", reply_markup=kb)
+    await message.answer("Выбери категорию:", reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("cat_"))
 async def goal_category(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
     category = callback.data.split("_")[1]
     await state.update_data(category=category)
-    await callback.message.edit_text("Напиши краткое описание цели (что именно ты хочешь достичь):")
-    await state.set_state(GoalStates.waiting_description)
+    await callback.message.edit_text("Напиши краткое описание цели:")
+    await state.set_state(GoalForm.description)
 
-@dp.message(GoalStates.waiting_description)
+@dp.message(GoalForm.description)
 async def goal_description(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    await add_goal(message.from_user.id, data['name'], data['category'], message.text)
+    async with aiosqlite.connect('coach.db') as db:
+        await db.execute("INSERT INTO goals (user_id, name, category, description, created) VALUES (?, ?, ?, ?, ?)",
+                        (message.from_user.id, data['name'], data['category'], message.text, datetime.now().isoformat()))
+        await db.commit()
     await message.answer(f"✅ Цель «{data['name']}» успешно добавлена!")
     await state.clear()
 
 @dp.message(F.text == "🎯 Мои цели")
 async def my_goals(message: types.Message):
-    goals = await get_user_goals(message.from_user.id)
+    async with aiosqlite.connect('coach.db') as db:
+        async with db.execute("SELECT name, category, streak FROM goals WHERE user_id = ?", 
+                            (message.from_user.id,)) as cursor:
+            goals = await cursor.fetchall()
+    
     if not goals:
-        await message.answer("У тебя пока нет целей. Добавь первую!")
+        await message.answer("У тебя пока нет целей.")
         return
 
     text = "<b>🎯 Твои цели:</b>\n\n"
-    for g in goals:
-        text += f"• {g[2]} ({g[3]}) — стрик: <b>{g[7]} дней</b>\n"
+    for name, cat, streak in goals:
+        text += f"• {name} ({cat}) — стрик: <b>{streak} дней</b>\n"
     await message.answer(text, parse_mode="HTML")
+
+@dp.message(F.text == "📅 Задание на сегодня")
+async def daily_task(message: types.Message):
+    premium = await is_premium(message.from_user.id)
+    
+    async with aiosqlite.connect('coach.db') as db:
+        async with db.execute("SELECT id, name, category FROM goals WHERE user_id = ?", 
+                            (message.from_user.id,)) as cursor:
+            goals = await cursor.fetchall()
+
+    if not goals:
+        await message.answer("Сначала добавь хотя бы одну цель.")
+        return
+
+    prompt = f"""Ты — строгий, но добрый личный коуч.
+Пользователь имеет следующие цели: {goals}.
+Придумай 1–2 конкретных, реалистичных и полезных задания на сегодня."""
+
+    task = await ask_ai(prompt)
+    
+    await message.answer(f"📅 <b>Задание на сегодня:</b>\n\n{task}", parse_mode="HTML")
 
 @dp.message(F.text == "📊 Статистика")
 async def statistics(message: types.Message):
-    goals = await get_user_goals(message.from_user.id)
-    total = len(goals)
-    active = sum(1 for g in goals if g[7] > 0)
+    async with aiosqlite.connect('coach.db') as db:
+        async with db.execute("SELECT COUNT(*), SUM(streak) FROM goals WHERE user_id = ?", 
+                            (message.from_user.id,)) as cursor:
+            row = await cursor.fetchone()
+            total = row[0] or 0
+            streak = row[1] or 0
+
+    premium = await is_premium(message.from_user.id)
     
     text = f"<b>📊 Твоя статистика</b>\n\n"
     text += f"Всего целей: <b>{total}</b>\n"
-    text += f"Активных целей: <b>{active}</b>\n"
-    text += f"Общий стрик по всем целям: <b>{sum(g[7] for g in goals)}</b> дней\n\n"
-    text += "Продолжай в том же духе! 🔥"
+    text += f"Общий стрик: <b>{streak} дней</b>\n\n"
+    
+    if premium:
+        text += "У тебя полный доступ. Продолжай в том же духе!"
+    else:
+        text += "Оформи подписку, чтобы получить персональные планы и глубокий анализ."
+    
     await message.answer(text, parse_mode="HTML")
 
 # ===================== ПОДПИСКА =====================
@@ -130,8 +206,8 @@ async def buy_subscription(message: types.Message):
     prices = [types.LabeledPrice(label="Подписка 30 дней", amount=99)]
     await bot.send_invoice(
         chat_id=message.chat.id,
-        title="Подписка «AI Коуч»",
-        description="Неограниченное количество целей + продвинутые рекомендации",
+        title="Подписка AI Личный Коуч",
+        description="Неограниченные цели + персональные ежедневные планы + глубокий анализ",
         payload="monthly_sub",
         provider_token="",
         currency="XTR",
@@ -149,7 +225,7 @@ async def successful_payment(message: types.Message):
         await db.execute("INSERT OR REPLACE INTO users (user_id, subscribed_until) VALUES (?, ?)", 
                         (message.from_user.id, until))
         await db.commit()
-    await message.answer("🎉 Подписка активирована!\nТеперь ты можешь иметь неограниченное количество целей.")
+    await message.answer("🎉 Подписка активирована!\nТеперь у тебя полный доступ ко всем функциям.")
 
 @dp.message(F.text == "👤 Моя подписка")
 async def my_sub(message: types.Message):
@@ -165,7 +241,7 @@ async def my_sub(message: types.Message):
 
 async def main():
     await init_db()
-    print("🚀 AI Коуч успешно запущен!")
+    print("🚀 AI Личный Коуч запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
