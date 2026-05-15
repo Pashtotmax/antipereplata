@@ -50,8 +50,8 @@ async def ask_grok(prompt: str):
             async with session.post(
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.85, "max_tokens": 950},
-                timeout=45
+                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.82, "max_tokens": 1100},
+                timeout=50
             ) as resp:
                 if resp.status != 200:
                     return "Давай чуть позже, сейчас немного тяжело."
@@ -122,7 +122,6 @@ async def start(message: types.Message):
     user_mode[user_id] = "normal"
     roleplay_exit_counter[user_id] = 0
     
-    # Красивое приветствие с объяснением возможностей
     await message.answer(
         "Привет! ❤️\n\n"
         "Я — твой личный собеседник, который всегда на твоей стороне. "
@@ -207,12 +206,15 @@ async def ai_psychologist(message: types.Message):
 Пользователь написал: "{message.text}"
 Продолжай ролевую игру естественно."""
     else:
-        prompt = f"""Ты — {role}, очень умный, внимательный и эмоционально глубокий человек противоположного пола.
-Ты ведёшь длинный, связный разговор. Хорошо помни весь контекст.
+        prompt = f"""Ты — {role}, очень умный, глубокий и эмоционально чуткий человек противоположного пола.
+Ты ведёшь длинный, осмысленный разговор. Ты прекрасно помнишь весь предыдущий контекст и никогда его не теряешь.
+
 Контекст разговора:
 {context_str}
-Пользователь написал: "{message.text}"
-Отвечай естественно, последовательно и с памятью о предыдущем."""
+
+Пользователь только что написал: "{message.text}"
+
+Отвечай естественно, последовательно, с отличной памятью. Будь максимально похож на настоящего, высокоинтеллектуального собеседника."""
 
     response = await ask_grok(prompt)
 
