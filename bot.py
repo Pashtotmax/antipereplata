@@ -10,6 +10,7 @@ import traceback
 
 TOKEN = os.getenv("TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
+ADMIN_ID = 123456789  # ←←← ИЗМЕНИ НА СВОЙ TELEGRAM ID !!!
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -33,11 +34,12 @@ async def init_db():
         await db.commit()
 
 main_menu = ReplyKeyboardMarkup(keyboard=[
-    [KeyboardButton(text="💎 Купить подписку за 0.99$")],
+    [KeyboardButton(text="💎 Купить подписку за 99⭐")],
     [KeyboardButton(text="📖 Разбор ситуации")],
     [KeyboardButton(text="🎭 Ролевая игра")],
     [KeyboardButton(text="📜 Моя история")],
     [KeyboardButton(text="🧪 Пройти тест")],
+    [KeyboardButton(text="🔮 Соционика")],
 ], resize_keyboard=True)
 
 # ===================== AI =====================
@@ -46,16 +48,8 @@ async def ask_grok(prompt: str):
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {AI_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "grok-4",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.88,
-                    "max_tokens": 900
-                },
+                headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
+                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.88, "max_tokens": 900},
                 timeout=40
             ) as resp:
                 if resp.status != 200:
@@ -66,7 +60,7 @@ async def ask_grok(prompt: str):
         print("AI ERROR:", str(e))
         return "Извини, давай попробуем через минуту."
 
-# ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
+# ===================== ВСПОМОГАТЕЛЬНЫЕ =====================
 async def save_to_history(user_id: int, user_msg: str, bot_msg: str):
     async with aiosqlite.connect('psychology.db') as db:
         await db.execute("INSERT INTO history (user_id, date, user_message, bot_response) VALUES (?, ?, ?, ?)",
@@ -128,18 +122,18 @@ async def start(message: types.Message):
         reply_markup=main_menu
     )
 
-# ===================== КРАСИВАЯ ПОДПИСКА =====================
-@dp.message(F.text == "💎 Купить подписку за 0.99$")
+# ===================== КРАСИВАЯ ПОДПИСКА (НОВАЯ КАРТИНКА) =====================
+@dp.message(F.text == "💎 Купить подписку за 99⭐")
 async def buy_subscription(message: types.Message):
     await message.answer_photo(
-        photo="https://i.imgur.com/8QjKz3E.jpg",
+        photo="https://i.imgur.com/OiaFA.jpg",   # ← Твоя новая картинка
         caption="<b>❤️ Специальное предложение для тебя</b>\n\n"
                 "Подписка <b>«Близкий Психолог»</b>\n\n"
                 "• 150 сообщений каждый день\n"
                 "• Я всегда на твоей стороне\n"
                 "• Глубокие и честные разговоры\n"
                 "• Автоматическое продление\n\n"
-                "Всего за <b>0.99$ в месяц</b> — меньше, чем чашка кофе ☕\n\n"
+                "Всего за <b>99 Telegram Stars</b>\n\n"
                 "Готов открыть сердце и получить настоящую поддержку?",
         parse_mode="HTML"
     )
@@ -156,14 +150,14 @@ async def buy_subscription(message: types.Message):
         start_parameter="sub"
     )
 
-# ===================== ДРУГИЕ КНОПКИ =====================
+# ===================== ОСТАЛЬНОЙ КОД (без изменений) =====================
 @dp.message(F.text == "📖 Разбор ситуации")
 async def situation_analysis(message: types.Message):
-    await message.answer("Расскажи подробнее, что произошло. Я помогу тебе разобраться в ситуации ❤️")
+    await message.answer("Пришли мне текст переписки или опиши ситуацию подробно. Я сделаю полный разбор ❤️")
 
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
-    await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.\nПример: «Ты — моя девушка, мы поссорились»")
+    await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.")
 
 @dp.message(F.text == "📜 Моя история")
 async def show_history(message: types.Message):
@@ -183,15 +177,24 @@ async def show_history(message: types.Message):
 async def tests(message: types.Message):
     await message.answer("Какой тест хочешь пройти?\n\n1. Стиль привязанности\n2. Готовность к отношениям\n\nНапиши цифру.")
 
-# ===================== ОСНОВНОЙ ЧАТ =====================
+@dp.message(F.text == "🔮 Соционика")
+async def socionics(message: types.Message):
+    await message.answer("🔮 <b>Соционика</b> — это теория о 16 типах личности и как люди взаимодействуют.\n\n"
+                         "Хочешь узнать свой соционический тип? Расскажи немного о себе, или ответь на несколько вопросов.")
+
 @dp.message()
 async def ai_psychologist(message: types.Message):
+    if message.text == "📊 Статистика" and message.from_user.id == ADMIN_ID:
+        # Здесь можно добавить статистику позже
+        await message.answer("📊 Статистика пока в разработке.")
+        return
+
     can_send, remaining = await can_send_message(message.from_user.id)
-  
+ 
     if not can_send:
         await message.answer(
             "Сегодня ты уже использовал все бесплатные сообщения.\n\n"
-            "Оформи подписку за 0.99$, чтобы продолжить общение (150 сообщений в сутки).",
+            "Оформи подписку за 99⭐, чтобы продолжить общение (150 сообщений в сутки).",
             reply_markup=main_menu
         )
         return
@@ -205,26 +208,23 @@ async def ai_psychologist(message: types.Message):
 
     thinking = await message.answer("Пишу...")
 
-    # Улучшенный промпт — легче входит в роль
-    prompt = f"""Ты — {role}, очень тёплый, страстный и понимающий человек. 
+    prompt = f"""Ты — {role}, очень тёплый, страстный и понимающий человек.
 Говори естественно, живо, с эмоциями, как настоящий человек противоположного пола.
 Не упоминай, что ты психолог или ИИ.
 Пользователь написал: "{message.text}"
 Ответь ему мягко, искренне и душевно."""
 
     response = await ask_grok(prompt)
-   
+  
     await thinking.delete()
     await message.answer(response)
 
-    # Сохраняем в историю
     await save_to_history(message.from_user.id, message.text, response)
 
-    # Авто-предложения
     lower_text = message.text.lower()
     if any(word in lower_text for word in ["поссори", "ругал", "конфликт", "проблема", "обидел", "ссора"]):
         await message.answer("Хочешь подробно разобрать эту ситуацию? Напиши «Разбор ситуации»")
-   
+  
     if any(word in lower_text for word in ["представь", "роль", "поиграем", "как будто", "давай сыграем"]):
         await message.answer("Хочешь поиграть в ролевую игру? Просто скажи, в какой роли меня видеть ❤️")
 
