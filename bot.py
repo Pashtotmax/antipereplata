@@ -49,7 +49,7 @@ async def ask_grok(prompt: str):
             async with session.post(
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.88, "max_tokens": 900},
+                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.85, "max_tokens": 900},
                 timeout=40
             ) as resp:
                 if resp.status != 200:
@@ -122,18 +122,18 @@ async def start(message: types.Message):
         reply_markup=main_menu
     )
 
-# ===================== КРАСИВАЯ ПОДПИСКА (НОВАЯ КАРТИНКА) =====================
+# ===================== КРАСИВАЯ ПОДПИСКА =====================
 @dp.message(F.text == "💎 Купить подписку за 99⭐")
 async def buy_subscription(message: types.Message):
     await message.answer_photo(
-        photo="https://i.imgur.com/OiaFA.jpg",   # ← Твоя новая картинка
+        photo="https://i.imgur.com/OiaFA.jpg",
         caption="<b>❤️ Специальное предложение для тебя</b>\n\n"
                 "Подписка <b>«Близкий Психолог»</b>\n\n"
                 "• 150 сообщений каждый день\n"
                 "• Я всегда на твоей стороне\n"
                 "• Глубокие и честные разговоры\n"
                 "• Автоматическое продление\n\n"
-                "Всего за <b>99 Telegram Stars</b>\n\n"
+                "Всего за <b>99 Telegram Stars</b> в месяц — меньше, чем чашка кофе ☕\n\n"
                 "Готов открыть сердце и получить настоящую поддержку?",
         parse_mode="HTML"
     )
@@ -150,10 +150,10 @@ async def buy_subscription(message: types.Message):
         start_parameter="sub"
     )
 
-# ===================== ОСТАЛЬНОЙ КОД (без изменений) =====================
+# ===================== ОСТАЛЬНЫЕ КНОПКИ =====================
 @dp.message(F.text == "📖 Разбор ситуации")
 async def situation_analysis(message: types.Message):
-    await message.answer("Пришли мне текст переписки или опиши ситуацию подробно. Я сделаю полный разбор ❤️")
+    await message.answer("Расскажи подробнее, что произошло. Я помогу тебе разобраться в ситуации ❤️")
 
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
@@ -182,10 +182,11 @@ async def socionics(message: types.Message):
     await message.answer("🔮 <b>Соционика</b> — это теория о 16 типах личности и как люди взаимодействуют.\n\n"
                          "Хочешь узнать свой соционический тип? Расскажи немного о себе, или ответь на несколько вопросов.")
 
+# ===================== ОСНОВНОЙ ЧАТ =====================
 @dp.message()
 async def ai_psychologist(message: types.Message):
+    # Админ статистика (пока заглушка)
     if message.text == "📊 Статистика" and message.from_user.id == ADMIN_ID:
-        # Здесь можно добавить статистику позже
         await message.answer("📊 Статистика пока в разработке.")
         return
 
@@ -208,11 +209,12 @@ async def ai_psychologist(message: types.Message):
 
     thinking = await message.answer("Пишу...")
 
-    prompt = f"""Ты — {role}, очень тёплый, страстный и понимающий человек.
-Говори естественно, живо, с эмоциями, как настоящий человек противоположного пола.
+    # Основной режим — мягкий и серьёзный
+    prompt = f"""Ты — {role}, мягкий, внимательный и понимающий человек противоположного пола.
+Говори спокойно, душевно и искренне. Будь серьёзным, когда это нужно, но сохраняй тепло.
 Не упоминай, что ты психолог или ИИ.
 Пользователь написал: "{message.text}"
-Ответь ему мягко, искренне и душевно."""
+Ответь ему мягко и поддерживающе."""
 
     response = await ask_grok(prompt)
   
@@ -221,6 +223,7 @@ async def ai_psychologist(message: types.Message):
 
     await save_to_history(message.from_user.id, message.text, response)
 
+    # Авто-предложения
     lower_text = message.text.lower()
     if any(word in lower_text for word in ["поссори", "ругал", "конфликт", "проблема", "обидел", "ссора"]):
         await message.answer("Хочешь подробно разобрать эту ситуацию? Напиши «Разбор ситуации»")
