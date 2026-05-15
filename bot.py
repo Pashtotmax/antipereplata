@@ -53,10 +53,10 @@ async def ask_grok(prompt: str):
                 json={
                     "model": "grok-4",
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.85,
-                    "max_tokens": 850
+                    "temperature": 0.88,
+                    "max_tokens": 900
                 },
-                timeout=35
+                timeout=40
             ) as resp:
                 if resp.status != 200:
                     return "Давай чуть позже, сейчас немного тяжело."
@@ -132,7 +132,7 @@ async def start(message: types.Message):
 @dp.message(F.text == "💎 Купить подписку за 0.99$")
 async def buy_subscription(message: types.Message):
     await message.answer_photo(
-        photo="https://i.imgur.com/8QjKz3E.jpg",   # Красивое сердце
+        photo="https://i.imgur.com/8QjKz3E.jpg",
         caption="<b>❤️ Специальное предложение для тебя</b>\n\n"
                 "Подписка <b>«Близкий Психолог»</b>\n\n"
                 "• 150 сообщений каждый день\n"
@@ -163,12 +163,12 @@ async def situation_analysis(message: types.Message):
 
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
-    await message.answer("Отлично! Напиши, в какой роли ты хочешь меня видеть.\nНапример: «Ты — моя девушка, мы поссорились»")
+    await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.\nПример: «Ты — моя девушка, мы поссорились»")
 
 @dp.message(F.text == "📜 Моя история")
 async def show_history(message: types.Message):
     async with aiosqlite.connect('psychology.db') as db:
-        async with db.execute("SELECT date, user_message, bot_response FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 5", 
+        async with db.execute("SELECT date, user_message, bot_response FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 5",
                             (message.from_user.id,)) as cursor:
             rows = await cursor.fetchall()
     if not rows:
@@ -187,7 +187,7 @@ async def tests(message: types.Message):
 @dp.message()
 async def ai_psychologist(message: types.Message):
     can_send, remaining = await can_send_message(message.from_user.id)
-   
+  
     if not can_send:
         await message.answer(
             "Сегодня ты уже использовал все бесплатные сообщения.\n\n"
@@ -205,10 +205,12 @@ async def ai_psychologist(message: types.Message):
 
     thinking = await message.answer("Пишу...")
 
-    prompt = f"""Ты — {role}, тёплый, понимающий и прямой психолог по отношениям. 
-Разговаривай естественно, как живой человек противоположного пола.
+    # Улучшенный промпт — легче входит в роль
+    prompt = f"""Ты — {role}, очень тёплый, страстный и понимающий человек. 
+Говори естественно, живо, с эмоциями, как настоящий человек противоположного пола.
+Не упоминай, что ты психолог или ИИ.
 Пользователь написал: "{message.text}"
-Дай ему честный, эмпатичный и полезный ответ."""
+Ответь ему мягко, искренне и душевно."""
 
     response = await ask_grok(prompt)
    
@@ -220,11 +222,11 @@ async def ai_psychologist(message: types.Message):
 
     # Авто-предложения
     lower_text = message.text.lower()
-    if any(word in lower_text for word in ["поссори", "ругал", "конфликт", "проблема", "обидел"]):
+    if any(word in lower_text for word in ["поссори", "ругал", "конфликт", "проблема", "обидел", "ссора"]):
         await message.answer("Хочешь подробно разобрать эту ситуацию? Напиши «Разбор ситуации»")
-    
-    if any(word in lower_text for word in ["представь", "роль", "поиграем", "как будто"]):
-        await message.answer("Хочешь поиграть в ролевую игру? Просто скажи, в какой роли меня видеть.")
+   
+    if any(word in lower_text for word in ["представь", "роль", "поиграем", "как будто", "давай сыграем"]):
+        await message.answer("Хочешь поиграть в ролевую игру? Просто скажи, в какой роли меня видеть ❤️")
 
 async def main():
     await init_db()
