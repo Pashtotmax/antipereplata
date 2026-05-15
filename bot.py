@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 import aiosqlite
 import aiohttp
+import traceback
 
 TOKEN = os.getenv("TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
@@ -13,7 +14,7 @@ AI_API_KEY = os.getenv("AI_API_KEY")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ===================== БАЗА ДАННЫХ =====================
+# ===================== БАЗА =====================
 async def init_db():
     async with aiosqlite.connect('psychology.db') as db:
         await db.execute('''CREATE TABLE IF NOT EXISTS users 
@@ -27,30 +28,41 @@ main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 1$")],
 ], resize_keyboard=True)
 
-# ===================== AI =====================
+# ===================== AI С ОТЛАДКОЙ =====================
 async def ask_grok(prompt: str):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 "https://api.x.ai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {AI_API_KEY}"},
+                headers={
+                    "Authorization": f"Bearer {AI_API_KEY}",
+                    "Content-Type": "application/json"
+                },
                 json={
                     "model": "grok-4.1-fast",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.8,
-                    "max_tokens": 900
-                }
+                    "max_tokens": 800
+                },
+                timeout=30
             ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    print(f"API Error {resp.status}: {text}")
+                    return f"Ошибка API ({resp.status}). Попробуй позже."
+                
                 data = await resp.json()
                 return data['choices'][0]['message']['content']
-    except:
-        return "Извини, я сейчас перегружен. Попробуй позже."
+                
+    except Exception as e:
+        error_text = traceback.format_exc()
+        print("AI ERROR:", error_text)
+        return f"Ошибка соединения с AI. Попробуй через минуту."
 
-# ===================== ПРОВЕРКА ЛИМИТА =====================
+# ===================== ЛИМИТЫ =====================
 async def can_send_message(user_id: int):
     async with aiosqlite.connect('psychology.db') as db:
-        async with db.execute("SELECT subscribed_until, messages_today, last_reset FROM users WHERE user_id = ?", 
-                            (user_id,)) as cursor:
+        async with db.execute("SELECT subscribed_until, messages_today, last_reset FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             
             if not row:
@@ -62,7 +74,6 @@ async def can_send_message(user_id: int):
             subscribed_until, messages_today, last_reset = row
             today = datetime.now().date().isoformat()
 
-            # Сброс счётчика в новый день
             if last_reset != today:
                 await db.execute("UPDATE users SET messages_today = 0, last_reset = ? WHERE user_id = ?", 
                                (today, user_id))
@@ -70,11 +81,8 @@ async def can_send_message(user_id: int):
                 messages_today = 0
 
             is_premium = subscribed_until and datetime.fromisoformat(subscribed_until) > datetime.now()
-            
-            if is_premium:
-                return True, 200
-            else:
-                return messages_today < 5, 5 - messages_today
+            limit = 200 if is_premium else 5
+            return messages_today < limit, limit - messages_today
 
 # ===================== ХЭНДЛЕРЫ =====================
 @dp.message(Command("start"))
@@ -82,8 +90,7 @@ async def start(message: types.Message):
     await init_db()
     await message.answer(
         "👋 Добро пожаловать в <b>AI Психолог Отношений</b>\n\n"
-        "Я помогу тебе разобраться в отношениях, любви, конфликтах и чувствах.\n\n"
-        "Пиши мне всё, что тебя беспокоит.",
+        "Пиши мне всё, что у тебя на душе.",
         reply_markup=main_menu, parse_mode="HTML"
     )
 
@@ -92,24 +99,19 @@ async def ai_psychologist(message: types.Message):
     can_send, remaining = await can_send_message(message.from_user.id)
     
     if not can_send:
-        await message.answer(
-            "❌ Сегодня ты использовал все 5 бесплатных сообщений.\n\n"
-            "Оформи подписку за 1$, чтобы общаться без ограничений (200 сообщений в день).",
-            reply_markup=main_menu
-        )
+        await message.answer("❌ Лимит бесплатных сообщений исчерпан.\nОформи подписку за 1$.", reply_markup=main_menu)
         return
 
     # Обновляем счётчик
     async with aiosqlite.connect('psychology.db') as db:
-        await db.execute("UPDATE users SET messages_today = messages_today + 1 WHERE user_id = ?", 
-                        (message.from_user.id,))
+        await db.execute("UPDATE users SET messages_today = messages_today + 1 WHERE user_id = ?", (message.from_user.id,))
         await db.commit()
 
-    thinking = await message.answer("🤔 Думаю над твоим вопросом...")
+    thinking = await message.answer("🤔 Думаю...")
 
-    prompt = f"""Ты — опытный психолог по отношениям, эмпатичный, честный и прямой.
-Пользователь написал: "{message.text}"
-Дай глубокий, полезный и поддерживающий ответ."""
+    prompt = f"""Ты — эмпатичный и честный психолог по отношениям.
+Пользователь: "{message.text}"
+Дай полезный, глубокий ответ."""
 
     response = await ask_grok(prompt)
     
@@ -118,11 +120,11 @@ async def ai_psychologist(message: types.Message):
 
 @dp.message(F.text == "💎 Купить подписку за 1$")
 async def buy_subscription(message: types.Message):
-    prices = [types.LabeledPrice(label="Подписка 30 дней", amount=99)]  # 0.99$
+    prices = [types.LabeledPrice(label="Подписка 30 дней", amount=99)]
     await bot.send_invoice(
         chat_id=message.chat.id,
         title="Подписка AI Психолог Отношений",
-        description="200 сообщений в день + приоритетные ответы",
+        description="200 сообщений в день",
         payload="monthly_sub",
         provider_token="",
         currency="XTR",
@@ -140,7 +142,7 @@ async def successful_payment(message: types.Message):
         await db.execute("INSERT OR REPLACE INTO users (user_id, subscribed_until) VALUES (?, ?)", 
                         (message.from_user.id, until))
         await db.commit()
-    await message.answer("🎉 Подписка успешно активирована!\nТеперь у тебя 200 сообщений в день.")
+    await message.answer("🎉 Подписка активирована! Теперь у тебя 200 сообщений в день.")
 
 async def main():
     await init_db()
