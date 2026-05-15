@@ -22,11 +22,22 @@ async def init_db():
                             subscribed_until TEXT,
                             messages_today INTEGER DEFAULT 0,
                             last_reset TEXT,
-                            gender TEXT DEFAULT NULL)''')  # Новое поле
+                            gender TEXT DEFAULT NULL)''')
+        
+        await db.execute('''CREATE TABLE IF NOT EXISTS history
+                           (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id INTEGER,
+                            date TEXT,
+                            user_message TEXT,
+                            bot_response TEXT)''')
         await db.commit()
 
 main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 0.99$")],
+    [KeyboardButton(text="📖 Разбор ситуации")],
+    [KeyboardButton(text="🎭 Ролевая игра")],
+    [KeyboardButton(text="📜 Моя история")],
+    [KeyboardButton(text="🧪 Пройти тест")],
 ], resize_keyboard=True)
 
 # ===================== AI =====================
@@ -49,15 +60,19 @@ async def ask_grok(prompt: str):
             ) as resp:
                 if resp.status != 200:
                     return "Давай чуть позже, сейчас немного тяжело."
-               
                 data = await resp.json()
                 return data['choices'][0]['message']['content']
-               
     except Exception as e:
         print("AI ERROR:", str(e))
         return "Извини, давай попробуем через минуту."
 
-# ===================== ОПРЕДЕЛЕНИЕ И СОХРАНЕНИЕ ПОЛА =====================
+# ===================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====================
+async def save_to_history(user_id: int, user_msg: str, bot_msg: str):
+    async with aiosqlite.connect('psychology.db') as db:
+        await db.execute("INSERT INTO history (user_id, date, user_message, bot_response) VALUES (?, ?, ?, ?)",
+                        (user_id, datetime.now().isoformat(), user_msg, bot_msg))
+        await db.commit()
+
 async def get_opposite_gender(user_id: int, message_text: str):
     async with aiosqlite.connect('psychology.db') as db:
         async with db.execute("SELECT gender FROM users WHERE user_id = ?", (user_id,)) as cursor:
@@ -65,20 +80,18 @@ async def get_opposite_gender(user_id: int, message_text: str):
             if row and row[0]:
                 return row[0]
 
-    # Простое определение по тексту (можно улучшить позже)
     text_lower = message_text.lower()
-    if any(word in text_lower for word in ["я девушка", "я женщина", "я девочка", "мне 18", "подруга"]):
+    if any(word in text_lower for word in ["я девушка", "я женщина", "я девочка", "подруга"]):
         gender = "male"
     elif any(word in text_lower for word in ["я парень", "я мужчина", "я мужик", "я юноша"]):
         gender = "female"
     else:
-        gender = None  # Не определён
+        gender = None
 
     if gender:
         async with aiosqlite.connect('psychology.db') as db:
             await db.execute("UPDATE users SET gender = ? WHERE user_id = ?", (gender, user_id))
             await db.commit()
-    
     return gender
 
 # ===================== ЛИМИТЫ =====================
@@ -86,7 +99,7 @@ async def can_send_message(user_id: int):
     async with aiosqlite.connect('psychology.db') as db:
         async with db.execute("SELECT subscribed_until, messages_today, last_reset FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
-           
+            
             if not row:
                 await db.execute("INSERT INTO users (user_id, messages_today, last_reset) VALUES (?, 0, ?)",
                                (user_id, datetime.now().date().isoformat()))
@@ -110,18 +123,32 @@ async def can_send_message(user_id: int):
 async def start(message: types.Message):
     await init_db()
     await message.answer(
-        "Привет! Я здесь, чтобы помочь тебе с отношениями и чувствами.\n\n"
+        "Привет! Я здесь, чтобы помочь тебе с отношениями и чувствами ❤️\n\n"
         "Пиши мне всё, что на душе.",
         reply_markup=main_menu
     )
 
+# ===================== КРАСИВАЯ ПОДПИСКА =====================
 @dp.message(F.text == "💎 Купить подписку за 0.99$")
 async def buy_subscription(message: types.Message):
+    await message.answer_photo(
+        photo="https://i.imgur.com/8QjKz3E.jpg",   # Красивое сердце
+        caption="<b>❤️ Специальное предложение для тебя</b>\n\n"
+                "Подписка <b>«Близкий Психолог»</b>\n\n"
+                "• 150 сообщений каждый день\n"
+                "• Я всегда на твоей стороне\n"
+                "• Глубокие и честные разговоры\n"
+                "• Автоматическое продление\n\n"
+                "Всего за <b>0.99$ в месяц</b> — меньше, чем чашка кофе ☕\n\n"
+                "Готов открыть сердце и получить настоящую поддержку?",
+        parse_mode="HTML"
+    )
+    
     prices = [types.LabeledPrice(label="Подписка на 30 дней", amount=99)]
     await bot.send_invoice(
         chat_id=message.chat.id,
-        title="Подписка AI Психолог Отношений",
-        description="150 сообщений в сутки • Автоматическое продление каждый месяц",
+        title="❤️ Подписка «Близкий Психолог»",
+        description="150 сообщений в сутки • Полная поддержка • Автопродление",
         payload="monthly_sub",
         provider_token="",
         currency="XTR",
@@ -129,19 +156,34 @@ async def buy_subscription(message: types.Message):
         start_parameter="sub"
     )
 
-@dp.pre_checkout_query()
-async def pre_checkout(query: types.PreCheckoutQuery):
-    await query.answer(ok=True)
+# ===================== ДРУГИЕ КНОПКИ =====================
+@dp.message(F.text == "📖 Разбор ситуации")
+async def situation_analysis(message: types.Message):
+    await message.answer("Расскажи подробнее, что произошло. Я помогу тебе разобраться в ситуации ❤️")
 
-@dp.message(F.successful_payment)
-async def successful_payment(message: types.Message):
-    until = (datetime.now() + timedelta(days=30)).isoformat()
+@dp.message(F.text == "🎭 Ролевая игра")
+async def role_play(message: types.Message):
+    await message.answer("Отлично! Напиши, в какой роли ты хочешь меня видеть.\nНапример: «Ты — моя девушка, мы поссорились»")
+
+@dp.message(F.text == "📜 Моя история")
+async def show_history(message: types.Message):
     async with aiosqlite.connect('psychology.db') as db:
-        await db.execute("INSERT OR REPLACE INTO users (user_id, subscribed_until) VALUES (?, ?)",
-                        (message.from_user.id, until))
-        await db.commit()
-    await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки.")
+        async with db.execute("SELECT date, user_message, bot_response FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 5", 
+                            (message.from_user.id,)) as cursor:
+            rows = await cursor.fetchall()
+    if not rows:
+        await message.answer("Пока нет сохранённых разговоров.")
+        return
+    text = "📜 Последние 5 разговоров:\n\n"
+    for date, user_msg, bot_msg in rows:
+        text += f"📅 {date[:10]}\nТы: {user_msg[:80]}...\nЯ: {bot_msg[:80]}...\n\n"
+    await message.answer(text)
 
+@dp.message(F.text == "🧪 Пройти тест")
+async def tests(message: types.Message):
+    await message.answer("Какой тест хочешь пройти?\n\n1. Стиль привязанности\n2. Готовность к отношениям\n\nНапиши цифру.")
+
+# ===================== ОСНОВНОЙ ЧАТ =====================
 @dp.message()
 async def ai_psychologist(message: types.Message):
     can_send, remaining = await can_send_message(message.from_user.id)
@@ -154,7 +196,6 @@ async def ai_psychologist(message: types.Message):
         )
         return
 
-    # Определяем пол и выбираем роль
     user_gender = await get_opposite_gender(message.from_user.id, message.text)
     role = "мужчина" if user_gender == "female" else "женщина" if user_gender == "male" else "человек"
 
@@ -165,7 +206,7 @@ async def ai_psychologist(message: types.Message):
     thinking = await message.answer("Пишу...")
 
     prompt = f"""Ты — {role}, тёплый, понимающий и прямой психолог по отношениям. 
-Разговаривай естественно, как живой человек противоположного пола пользователю.
+Разговаривай естественно, как живой человек противоположного пола.
 Пользователь написал: "{message.text}"
 Дай ему честный, эмпатичный и полезный ответ."""
 
@@ -173,6 +214,17 @@ async def ai_psychologist(message: types.Message):
    
     await thinking.delete()
     await message.answer(response)
+
+    # Сохраняем в историю
+    await save_to_history(message.from_user.id, message.text, response)
+
+    # Авто-предложения
+    lower_text = message.text.lower()
+    if any(word in lower_text for word in ["поссори", "ругал", "конфликт", "проблема", "обидел"]):
+        await message.answer("Хочешь подробно разобрать эту ситуацию? Напиши «Разбор ситуации»")
+    
+    if any(word in lower_text for word in ["представь", "роль", "поиграем", "как будто"]):
+        await message.answer("Хочешь поиграть в ролевую игру? Просто скажи, в какой роли меня видеть.")
 
 async def main():
     await init_db()
