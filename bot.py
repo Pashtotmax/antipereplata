@@ -28,7 +28,7 @@ main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 1$")],
 ], resize_keyboard=True)
 
-# ===================== AI С ОТЛАДКОЙ =====================
+# ===================== AI =====================
 async def ask_grok(prompt: str):
     try:
         async with aiohttp.ClientSession() as session:
@@ -39,7 +39,7 @@ async def ask_grok(prompt: str):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-4.1-fast",
+                    "model": "grok-4",          # ← Исправлено
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.8,
                     "max_tokens": 800
@@ -57,7 +57,7 @@ async def ask_grok(prompt: str):
     except Exception as e:
         error_text = traceback.format_exc()
         print("AI ERROR:", error_text)
-        return f"Ошибка соединения с AI. Попробуй через минуту."
+        return "Извини, сейчас проблемы с соединением. Попробуй через минуту."
 
 # ===================== ЛИМИТЫ =====================
 async def can_send_message(user_id: int):
@@ -102,7 +102,6 @@ async def ai_psychologist(message: types.Message):
         await message.answer("❌ Лимит бесплатных сообщений исчерпан.\nОформи подписку за 1$.", reply_markup=main_menu)
         return
 
-    # Обновляем счётчик
     async with aiosqlite.connect('psychology.db') as db:
         await db.execute("UPDATE users SET messages_today = messages_today + 1 WHERE user_id = ?", (message.from_user.id,))
         await db.commit()
