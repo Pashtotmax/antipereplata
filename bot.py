@@ -76,27 +76,29 @@ async def is_premium(user_id: int):
                 return datetime.fromisoformat(row[0]) > datetime.now()
     return False
 
+async def get_goals_count(user_id: int):
+    async with aiosqlite.connect('coach.db') as db:
+        async with db.execute("SELECT COUNT(*) FROM goals WHERE user_id = ?", (user_id,)) as cursor:
+            return (await cursor.fetchone())[0]
+
 # ===================== ХЭНДЛЕРЫ =====================
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await init_db()
     await message.answer(
         "👋 Добро пожаловать в <b>AI Личный Коуч</b>!\n\n"
-        "Я буду твоим персональным тренером по жизни.\n"
-        "Вместе мы будем ставить цели и достигать их.",
+        "Я буду твоим персональным тренером. Давай вместе менять жизнь к лучшему.",
         reply_markup=main_menu, parse_mode="HTML"
     )
 
 @dp.message(F.text == "➕ Добавить цель")
 async def add_goal_start(message: types.Message, state: FSMContext):
     premium = await is_premium(message.from_user.id)
-    if not premium:
-        async with aiosqlite.connect('coach.db') as db:
-            async with db.execute("SELECT COUNT(*) FROM goals WHERE user_id = ?", (message.from_user.id,)) as cursor:
-                count = (await cursor.fetchone())[0]
-        if count >= 2:
-            await message.answer("❌ В бесплатной версии можно создать только 2 цели.\nОформи подписку для неограниченного количества.")
-            return
+    count = await get_goals_count(message.from_user.id)
+    
+    if not premium and count >= 2:
+        await message.answer("❌ В бесплатной версии можно создать только 2 цели.\n\nОформи подписку для неограниченного количества.")
+        return
 
     await message.answer("Напиши название цели:")
     await state.set_state(GoalForm.name)
@@ -161,8 +163,8 @@ async def daily_task(message: types.Message):
         return
 
     prompt = f"""Ты — опытный, поддерживающий, но требовательный личный коуч.
-Пользователь имеет цели: {goals}.
-Придумай 1–2 конкретных, измеримых и полезных задания на сегодня."""
+Пользователь имеет следующие цели: {goals}.
+Придумай 1–2 конкретных, реалистичных и полезных задания на сегодня."""
 
     task = await ask_ai(prompt)
     
@@ -184,9 +186,9 @@ async def statistics(message: types.Message):
     text += f"Общий стрик: <b>{streak} дней</b>\n\n"
     
     if premium:
-        text += "Ты на подписке — у тебя полный доступ и персональные планы."
+        text += "У тебя полный доступ. Продолжай в том же духе!"
     else:
-        text += "Оформи подписку, чтобы получать персональные планы и глубокий анализ прогресса."
+        text += "Оформи подписку, чтобы получать персональные планы и глубокий анализ."
     
     await message.answer(text, parse_mode="HTML")
 
@@ -215,7 +217,7 @@ async def successful_payment(message: types.Message):
         await db.execute("INSERT OR REPLACE INTO users (user_id, subscribed_until) VALUES (?, ?)", 
                         (message.from_user.id, until))
         await db.commit()
-    await message.answer("🎉 Подписка успешно активирована!\nТеперь у тебя полный доступ.")
+    await message.answer("🎉 Подписка успешно активирована!\nТеперь у тебя полный доступ ко всем функциям.")
 
 @dp.message(F.text == "👤 Моя подписка")
 async def my_sub(message: types.Message):
@@ -231,7 +233,7 @@ async def my_sub(message: types.Message):
 
 async def main():
     await init_db()
-    print("🚀 AI Личный Коуч запущен!")
+    print("🚀 AI Личный Коуч успешно запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
