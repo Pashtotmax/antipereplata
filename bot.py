@@ -16,8 +16,9 @@ ADMIN_ID = 123456789  # ←←← ИЗМЕНИ НА СВОЙ TELEGRAM ID !!!
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Хранилище последних сообщений для контекста (в памяти)
+# Хранилище контекста и режима
 user_context = defaultdict(list)
+user_mode = defaultdict(lambda: "normal")  # "normal" или "roleplay"
 
 # ===================== БАЗА =====================
 async def init_db():
@@ -119,14 +120,16 @@ async def can_send_message(user_id: int):
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await init_db()
-    user_context[message.from_user.id].clear()  # Очищаем контекст при /start
+    user_id = message.from_user.id
+    user_context[user_id].clear()
+    user_mode[user_id] = "normal"
     await message.answer(
         "Привет! Я здесь, чтобы помочь тебе с отношениями и чувствами ❤️\n\n"
         "Пиши мне всё, что на душе.",
         reply_markup=main_menu
     )
 
-# ===================== КРАСИВАЯ ПОДПИСКА =====================
+# ===================== КРАСИВАЯ ПОДПИСКА (7 ДНЕЙ) =====================
 @dp.message(F.text == "💎 Купить подписку за 99⭐")
 async def buy_subscription(message: types.Message):
     await message.answer_photo(
@@ -142,17 +145,27 @@ async def buy_subscription(message: types.Message):
         parse_mode="HTML"
     )
     
-    prices = [types.LabeledPrice(label="Подписка на 30 дней", amount=99)]
+    prices = [types.LabeledPrice(label="Подписка на 7 дней", amount=99)]
     await bot.send_invoice(
         chat_id=message.chat.id,
         title="❤️ Подписка «Близкий Психолог»",
         description="150 сообщений в сутки • Полная поддержка • Автопродление",
-        payload="monthly_sub",
+        payload="weekly_sub",
         provider_token="",
         currency="XTR",
         prices=prices,
         start_parameter="sub"
     )
+
+# ===================== УСПЕШНАЯ ОПЛАТА (7 ДНЕЙ) =====================
+@dp.message(F.successful_payment)
+async def successful_payment(message: types.Message):
+    until = (datetime.now() + timedelta(days=7)).isoformat()   # ← Изменено на 7 дней
+    async with aiosqlite.connect('psychology.db') as db:
+        await db.execute("INSERT OR REPLACE INTO users (user_id, subscribed_until) VALUES (?, ?)",
+                        (message.from_user.id, until))
+        await db.commit()
+    await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки на 7 дней.")
 
 # ===================== РАЗБОР СИТУАЦИИ =====================
 @dp.message(F.text == "📖 Разбор ситуации")
@@ -176,6 +189,7 @@ async def tests(message: types.Message):
 # ===================== РОЛЕВАЯ ИГРА =====================
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
+    user_mode[message.from_user.id] = "roleplay"
     await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.")
 
 # ===================== ИСТОРИЯ =====================
@@ -193,14 +207,20 @@ async def show_history(message: types.Message):
         text += f"📅 {date[:10]}\nТы: {user_msg[:80]}...\nЯ: {bot_msg[:80]}...\n\n"
     await message.answer(text)
 
-# ===================== ОСНОВНОЙ ЧАТ (с улучшенной памятью + голосовые) =====================
+# ===================== ГОЛОСОВЫЕ =====================
 @dp.message(F.voice)
 async def voice_handler(message: types.Message):
-    await message.answer("Я услышал твой голос ❤️\n\nПока что я лучше работаю с текстом. Можешь написать своими словами, что ты хотел сказать?")
+    await message.answer("Я услышал твой голос ❤️\n\nПока что лучше пиши текстом, я точнее понимаю.")
 
+# ===================== ОСНОВНОЙ ЧАТ =====================
 @dp.message()
 async def ai_psychologist(message: types.Message):
     user_id = message.from_user.id
+
+    # Админ статистика (если нужно)
+    if message.text == "📊 Статистика" and user_id == ADMIN_ID:
+        await message.answer("📊 Статистика пока в разработке.")
+        return
 
     can_send, remaining = await can_send_message(user_id)
     if not can_send:
@@ -211,12 +231,12 @@ async def ai_psychologist(message: types.Message):
         )
         return
 
-    # Добавляем текущее сообщение в контекст
+    # Добавляем сообщение в контекст
     user_context[user_id].append(f"Пользователь: {message.text}")
-    if len(user_context[user_id]) > 6:
+    if len(user_context[user_id]) > 8:
         user_context[user_id].pop(0)
 
-    context_str = "\n".join(user_context[user_id][-6:])
+    context_str = "\n".join(user_context[user_id][-8:])
 
     user_gender = await get_opposite_gender(user_id, message.text)
     role = "мужчина" if user_gender == "female" else "женщина" if user_gender == "male" else "человек"
@@ -227,15 +247,19 @@ async def ai_psychologist(message: types.Message):
 
     thinking = await message.answer("Пишу...")
 
-    prompt = f"""Ты — {role}, мягкий, внимательный и понимающий человек противоположного пола.
-Ты ведёшь долгий душевный разговор. Хорошо помни весь предыдущий контекст.
-
-Предыдущий контекст:
-{context_str}
-
+    # Разный стиль в зависимости от режима
+    if user_mode[user_id] == "roleplay":
+        prompt = f"""Ты — {role}, очень страстный, игривый и раскрепощённый человек противоположного пола.
+Говори живо, с эмоциями и лёгким флиртом.
 Пользователь написал: "{message.text}"
-
-Ответь ему мягко, искренне и поддерживающе, продолжая разговор."""
+Продолжай ролевую игру."""
+    else:
+        prompt = f"""Ты — {role}, мягкий, внимательный и понимающий человек противоположного пола.
+Ты ведёшь долгий душевный разговор. Хорошо помни контекст.
+Говори спокойно, искренне и с теплом.
+Пользователь написал: "{message.text}"
+Предыдущий контекст: {context_str}
+Ответь мягко и поддерживающе."""
 
     response = await ask_grok(prompt)
  
@@ -246,7 +270,7 @@ async def ai_psychologist(message: types.Message):
 
     # Обновляем контекст
     user_context[user_id].append(f"Ты: {response}")
-    if len(user_context[user_id]) > 8:
+    if len(user_context[user_id]) > 10:
         user_context[user_id].pop(0)
 
     # Авто-предложения
@@ -255,7 +279,8 @@ async def ai_psychologist(message: types.Message):
         await message.answer("Хочешь подробно разобрать эту ситуацию? Напиши «Разбор ситуации»")
 
     if any(word in lower_text for word in ["представь", "роль", "поиграем", "как будто", "давай сыграем"]):
-        await message.answer("Хочешь поиграть в ролевую игру? Просто скажи, в какой роли меня видеть ❤️")
+        user_mode[user_id] = "roleplay"
+        await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.")
 
 async def main():
     await init_db()
