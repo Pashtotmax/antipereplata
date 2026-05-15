@@ -39,7 +39,6 @@ main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="🎭 Ролевая игра")],
     [KeyboardButton(text="📜 Моя история")],
     [KeyboardButton(text="🧪 Пройти тест")],
-    [KeyboardButton(text="🔮 Соционика")],
 ], resize_keyboard=True)
 
 # ===================== AI =====================
@@ -150,11 +149,26 @@ async def buy_subscription(message: types.Message):
         start_parameter="sub"
     )
 
-# ===================== ОСТАЛЬНЫЕ КНОПКИ =====================
+# ===================== КНОПКА РАЗБОРА СИТУАЦИИ =====================
 @dp.message(F.text == "📖 Разбор ситуации")
 async def situation_analysis(message: types.Message):
-    await message.answer("Расскажи подробнее, что произошло. Я помогу тебе разобраться в ситуации ❤️")
+    await message.answer(
+        "Хорошо, давай разберёмся ❤️\n\n"
+        "Опиши ситуацию своими словами или пришли текст переписки.\n"
+        "Я внимательно проанализирую и дам честный совет."
+    )
 
+# ===================== КНОПКА ТЕСТОВ =====================
+@dp.message(F.text == "🧪 Пройти тест")
+async def tests(message: types.Message):
+    await message.answer(
+        "🧪 Выбери тест, который хочешь пройти:\n\n"
+        "1️⃣ **Стиль привязанности** (самый популярный)\n"
+        "2️⃣ **Готовность к серьёзным отношениям**\n\n"
+        "Напиши цифру 1 или 2."
+    )
+
+# ===================== ОСТАЛЬНЫЕ КНОПКИ =====================
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
     await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.")
@@ -173,23 +187,9 @@ async def show_history(message: types.Message):
         text += f"📅 {date[:10]}\nТы: {user_msg[:80]}...\nЯ: {bot_msg[:80]}...\n\n"
     await message.answer(text)
 
-@dp.message(F.text == "🧪 Пройти тест")
-async def tests(message: types.Message):
-    await message.answer("Какой тест хочешь пройти?\n\n1. Стиль привязанности\n2. Готовность к отношениям\n\nНапиши цифру.")
-
-@dp.message(F.text == "🔮 Соционика")
-async def socionics(message: types.Message):
-    await message.answer("🔮 <b>Соционика</b> — это теория о 16 типах личности и как люди взаимодействуют.\n\n"
-                         "Хочешь узнать свой соционический тип? Расскажи немного о себе, или ответь на несколько вопросов.")
-
 # ===================== ОСНОВНОЙ ЧАТ =====================
 @dp.message()
 async def ai_psychologist(message: types.Message):
-    # Админ статистика (пока заглушка)
-    if message.text == "📊 Статистика" and message.from_user.id == ADMIN_ID:
-        await message.answer("📊 Статистика пока в разработке.")
-        return
-
     can_send, remaining = await can_send_message(message.from_user.id)
  
     if not can_send:
@@ -209,15 +209,15 @@ async def ai_psychologist(message: types.Message):
 
     thinking = await message.answer("Пишу...")
 
-    # Основной режим — мягкий и серьёзный
     prompt = f"""Ты — {role}, мягкий, внимательный и понимающий человек противоположного пола.
-Говори спокойно, душевно и искренне. Будь серьёзным, когда это нужно, но сохраняй тепло.
+Ты ведёшь долгий душевный разговор. Хорошо помни предыдущий контекст.
+Говори спокойно, искренне и с теплом.
 Не упоминай, что ты психолог или ИИ.
 Пользователь написал: "{message.text}"
-Ответь ему мягко и поддерживающе."""
+Ответь ему мягко, рассудительно и поддерживающе, продолжая предыдущий разговор."""
 
     response = await ask_grok(prompt)
-  
+ 
     await thinking.delete()
     await message.answer(response)
 
@@ -227,7 +227,7 @@ async def ai_psychologist(message: types.Message):
     lower_text = message.text.lower()
     if any(word in lower_text for word in ["поссори", "ругал", "конфликт", "проблема", "обидел", "ссора"]):
         await message.answer("Хочешь подробно разобрать эту ситуацию? Напиши «Разбор ситуации»")
-  
+
     if any(word in lower_text for word in ["представь", "роль", "поиграем", "как будто", "давай сыграем"]):
         await message.answer("Хочешь поиграть в ролевую игру? Просто скажи, в какой роли меня видеть ❤️")
 
