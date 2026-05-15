@@ -40,8 +40,8 @@ async def init_db():
 
 main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 99⭐")],
-    [KeyboardButton(text="📖 Разбор ситуации")],
     [KeyboardButton(text="🎭 Ролевая игра")],
+    [KeyboardButton(text="📜 Моя история")],
     [KeyboardButton(text="🧪 Пройти тест")],
 ], resize_keyboard=True)
 
@@ -144,7 +144,7 @@ async def buy_subscription(message: types.Message):
                 "Готов открыть сердце и получить настоящую поддержку?",
         parse_mode="HTML"
     )
-    
+   
     prices = [types.LabeledPrice(label="Подписка на 7 дней", amount=99)]
     await bot.send_invoice(
         chat_id=message.chat.id,
@@ -175,20 +175,27 @@ async def tests(message: types.Message):
         "Готов начать?"
     )
 
-# ===================== ОСТАЛЬНЫЕ КНОПКИ =====================
-@dp.message(F.text == "📖 Разбор ситуации")
-async def situation_analysis(message: types.Message):
-    await message.answer("Хорошо, давай разберёмся ❤️\n\nОпиши ситуацию своими словами или пришли текст переписки.")
-
+# ===================== РОЛЕВАЯ ИГРА =====================
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
     user_mode[message.from_user.id] = "roleplay"
     roleplay_exit_counter[message.from_user.id] = 0
     await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.")
 
+# ===================== ИСТОРИЯ =====================
 @dp.message(F.text == "📜 Моя история")
 async def show_history(message: types.Message):
-    pass  # Кнопка удалена
+    async with aiosqlite.connect('psychology.db') as db:
+        async with db.execute("SELECT date, user_message, bot_response FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 5",
+                            (message.from_user.id,)) as cursor:
+            rows = await cursor.fetchall()
+    if not rows:
+        await message.answer("Пока нет сохранённых разговоров.")
+        return
+    text = "📜 Последние 5 разговоров:\n\n"
+    for date, user_msg, bot_msg in rows:
+        text += f"📅 {date[:10]}\nТы: {user_msg[:80]}...\nЯ: {bot_msg[:80]}...\n\n"
+    await message.answer(text)
 
 # ===================== ОСНОВНОЙ ЧАТ =====================
 @dp.message()
@@ -240,9 +247,6 @@ async def ai_psychologist(message: types.Message):
         user_context[user_id].pop(0)
 
     lower_text = message.text.lower()
-    if any(word in lower_text for word in ["поссори", "ругал", "конфликт", "проблема", "обидел", "ссора"]):
-        await message.answer("Хочешь подробно разобрать эту ситуацию? Напиши «Разбор ситуации»")
-
     if any(word in lower_text for word in ["представь", "роль", "поиграем", "как будто", "давай сыграем"]):
         user_mode[user_id] = "roleplay"
         roleplay_exit_counter[user_id] = 0
