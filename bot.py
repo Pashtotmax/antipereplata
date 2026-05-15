@@ -16,8 +16,8 @@ ADMIN_ID = 123456789  # ←←← ИЗМЕНИ НА СВОЙ TELEGRAM ID !!!
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-user_context = defaultdict(list)      # История диалога
-user_mode = defaultdict(lambda: "normal") 
+user_context = defaultdict(list)
+user_mode = defaultdict(lambda: "normal")
 roleplay_exit_counter = defaultdict(int)
 
 # ===================== БАЗА =====================
@@ -42,24 +42,18 @@ main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 99⭐")],
     [KeyboardButton(text="📖 Разбор ситуации")],
     [KeyboardButton(text="🎭 Ролевая игра")],
-    [KeyboardButton(text="📜 Моя история")],
     [KeyboardButton(text="🧪 Пройти тест")],
 ], resize_keyboard=True)
 
-# ===================== AI (максимально умный режим) =====================
+# ===================== AI =====================
 async def ask_grok(prompt: str):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"},
-                json={
-                    "model": "grok-4",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.78,
-                    "max_tokens": 1100
-                },
-                timeout=50
+                json={"model": "grok-4", "messages": [{"role": "user", "content": prompt}], "temperature": 0.85, "max_tokens": 950},
+                timeout=45
             ) as resp:
                 if resp.status != 200:
                     return "Давай чуть позже, сейчас немного тяжело."
@@ -172,7 +166,31 @@ async def successful_payment(message: types.Message):
         await db.commit()
     await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки на 7 дней ❤️")
 
-# ===================== ОСНОВНОЙ ЧАТ (максимально умный режим) =====================
+# ===================== КНОПКА ТЕСТОВ =====================
+@dp.message(F.text == "🧪 Пройти тест")
+async def tests(message: types.Message):
+    await message.answer(
+        "🧪 Хорошо! Давай проведём тест на тему отношений.\n\n"
+        "Я сейчас придумаю для тебя персональный тест.\n\n"
+        "Готов начать?"
+    )
+
+# ===================== ОСТАЛЬНЫЕ КНОПКИ =====================
+@dp.message(F.text == "📖 Разбор ситуации")
+async def situation_analysis(message: types.Message):
+    await message.answer("Хорошо, давай разберёмся ❤️\n\nОпиши ситуацию своими словами или пришли текст переписки.")
+
+@dp.message(F.text == "🎭 Ролевая игра")
+async def role_play(message: types.Message):
+    user_mode[message.from_user.id] = "roleplay"
+    roleplay_exit_counter[message.from_user.id] = 0
+    await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.")
+
+@dp.message(F.text == "📜 Моя история")
+async def show_history(message: types.Message):
+    pass  # Кнопка удалена
+
+# ===================== ОСНОВНОЙ ЧАТ =====================
 @dp.message()
 async def ai_psychologist(message: types.Message):
     user_id = message.from_user.id
@@ -182,9 +200,8 @@ async def ai_psychologist(message: types.Message):
         await message.answer("Сегодня ты уже использовал все бесплатные сообщения.\nОформи подписку за 99⭐.", reply_markup=main_menu)
         return
 
-    # Добавляем сообщение в контекст
     user_context[user_id].append(f"Пользователь: {message.text}")
-    if len(user_context[user_id]) > 12:   # Увеличил память
+    if len(user_context[user_id]) > 12:
         user_context[user_id].pop(0)
 
     context_str = "\n".join(user_context[user_id][-12:])
@@ -198,22 +215,18 @@ async def ai_psychologist(message: types.Message):
 
     thinking = await message.answer("Пишу...")
 
-    # ==================== СИЛЬНЫЙ ПРОМПТ ====================
     if user_mode[user_id] == "roleplay":
         prompt = f"""Ты — {role}, живой, тёплый и немного игривый человек противоположного пола.
-Ты сейчас в ролевой игре. Говори естественно, с эмоциями, но не переигрывай.
+Говори живо, с эмоциями, но не переигрывай.
 Пользователь написал: "{message.text}"
-Продолжай роль естественно и последовательно."""
+Продолжай ролевую игру естественно."""
     else:
         prompt = f"""Ты — {role}, очень умный, внимательный и эмоционально глубокий человек противоположного пола.
-Ты ведёшь длинный, связный, осмысленный разговор. Ты отлично помнишь всё, что было сказано раньше.
-
+Ты ведёшь длинный, связный разговор. Хорошо помни весь контекст.
 Контекст разговора:
 {context_str}
-
-Пользователь только что написал: "{message.text}"
-
-Отвечай естественно, последовательно, с памятью о предыдущих сообщениях. Будь мягким, поддерживающим и по делу."""
+Пользователь написал: "{message.text}"
+Отвечай естественно, последовательно и с памятью о предыдущем."""
 
     response = await ask_grok(prompt)
 
@@ -222,12 +235,10 @@ async def ai_psychologist(message: types.Message):
 
     await save_to_history(user_id, message.text, response)
 
-    # Обновляем контекст
     user_context[user_id].append(f"Ты: {response}")
     if len(user_context[user_id]) > 14:
         user_context[user_id].pop(0)
 
-    # Авто-предложения
     lower_text = message.text.lower()
     if any(word in lower_text for word in ["поссори", "ругал", "конфликт", "проблема", "обидел", "ссора"]):
         await message.answer("Хочешь подробно разобрать эту ситуацию? Напиши «Разбор ситуации»")
