@@ -41,8 +41,6 @@ async def init_db():
 main_menu = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="💎 Купить подписку за 99⭐")],
     [KeyboardButton(text="🎭 Ролевая игра")],
-    [KeyboardButton(text="📜 Моя история")],
-    [KeyboardButton(text="🧪 Пройти тест")],
 ], resize_keyboard=True)
 
 # ===================== AI =====================
@@ -123,9 +121,14 @@ async def start(message: types.Message):
     user_context[user_id].clear()
     user_mode[user_id] = "normal"
     roleplay_exit_counter[user_id] = 0
+    
+    # Красивое приветствие с объяснением возможностей
     await message.answer(
-        "Привет! Я здесь, чтобы помочь тебе с отношениями и чувствами ❤️\n\n"
-        "Пиши мне всё, что на душе.",
+        "Привет! ❤️\n\n"
+        "Я — твой личный собеседник, который всегда на твоей стороне. "
+        "Я могу быть мягким и понимающим, проводить тесты на отношения, "
+        "разбирать сложные ситуации, входить в любые роли и просто говорить по душам.\n\n"
+        "Пиши мне всё, что у тебя на сердце — я слушаю и помогаю.",
         reply_markup=main_menu
     )
 
@@ -166,36 +169,12 @@ async def successful_payment(message: types.Message):
         await db.commit()
     await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки на 7 дней ❤️")
 
-# ===================== КНОПКА ТЕСТОВ =====================
-@dp.message(F.text == "🧪 Пройти тест")
-async def tests(message: types.Message):
-    await message.answer(
-        "🧪 Хорошо! Давай проведём тест на тему отношений.\n\n"
-        "Я сейчас придумаю для тебя персональный тест.\n\n"
-        "Готов начать?"
-    )
-
 # ===================== РОЛЕВАЯ ИГРА =====================
 @dp.message(F.text == "🎭 Ролевая игра")
 async def role_play(message: types.Message):
     user_mode[message.from_user.id] = "roleplay"
     roleplay_exit_counter[message.from_user.id] = 0
     await message.answer("Хорошо, давай поиграем ❤️\nНапиши, в какой роли ты хочешь меня видеть.")
-
-# ===================== ИСТОРИЯ =====================
-@dp.message(F.text == "📜 Моя история")
-async def show_history(message: types.Message):
-    async with aiosqlite.connect('psychology.db') as db:
-        async with db.execute("SELECT date, user_message, bot_response FROM history WHERE user_id = ? ORDER BY id DESC LIMIT 5",
-                            (message.from_user.id,)) as cursor:
-            rows = await cursor.fetchall()
-    if not rows:
-        await message.answer("Пока нет сохранённых разговоров.")
-        return
-    text = "📜 Последние 5 разговоров:\n\n"
-    for date, user_msg, bot_msg in rows:
-        text += f"📅 {date[:10]}\nТы: {user_msg[:80]}...\nЯ: {bot_msg[:80]}...\n\n"
-    await message.answer(text)
 
 # ===================== ОСНОВНОЙ ЧАТ =====================
 @dp.message()
