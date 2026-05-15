@@ -88,6 +88,35 @@ async def start(message: types.Message):
         reply_markup=main_menu
     )
 
+# ===================== КНОПКА ПОДПИСКИ (теперь выше общего хендлера) =====================
+@dp.message(F.text == "💎 Купить подписку за 0.99$")
+async def buy_subscription(message: types.Message):
+    prices = [types.LabeledPrice(label="Подписка на 30 дней", amount=99)]
+    await bot.send_invoice(
+        chat_id=message.chat.id,
+        title="Подписка AI Психолог Отношений",
+        description="150 сообщений в сутки • Автоматическое продление каждый месяц",
+        payload="monthly_sub",
+        provider_token="",
+        currency="XTR",
+        prices=prices,
+        start_parameter="sub"
+    )
+
+@dp.pre_checkout_query()
+async def pre_checkout(query: types.PreCheckoutQuery):
+    await query.answer(ok=True)
+
+@dp.message(F.successful_payment)
+async def successful_payment(message: types.Message):
+    until = (datetime.now() + timedelta(days=30)).isoformat()
+    async with aiosqlite.connect('psychology.db') as db:
+        await db.execute("INSERT OR REPLACE INTO users (user_id, subscribed_until) VALUES (?, ?)",
+                        (message.from_user.id, until))
+        await db.commit()
+    await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки.")
+
+# ===================== ОБЩИЙ ХЭНДЛЕР (ниже кнопки) =====================
 @dp.message()
 async def ai_psychologist(message: types.Message):
     can_send, remaining = await can_send_message(message.from_user.id)
@@ -115,34 +144,6 @@ async def ai_psychologist(message: types.Message):
    
     await thinking.delete()
     await message.answer(response)
-
-# ===================== КНОПКА ПОДПИСКИ (исправленная) =====================
-@dp.message(F.text == "💎 Купить подписку за 0.99$")
-async def buy_subscription(message: types.Message):
-    prices = [types.LabeledPrice(label="Подписка на 30 дней", amount=99)]
-    await bot.send_invoice(
-        chat_id=message.chat.id,
-        title="Подписка AI Психолог Отношений",
-        description="150 сообщений в сутки • Автоматическое продление каждый месяц",
-        payload="monthly_sub",
-        provider_token="",
-        currency="XTR",
-        prices=prices,
-        start_parameter="sub"          # ← Добавлено для лучшей работы
-    )
-
-@dp.pre_checkout_query()
-async def pre_checkout(query: types.PreCheckoutQuery):
-    await query.answer(ok=True)
-
-@dp.message(F.successful_payment)
-async def successful_payment(message: types.Message):
-    until = (datetime.now() + timedelta(days=30)).isoformat()
-    async with aiosqlite.connect('psychology.db') as db:
-        await db.execute("INSERT OR REPLACE INTO users (user_id, subscribed_until) VALUES (?, ?)",
-                        (message.from_user.id, until))
-        await db.commit()
-    await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки.")
 
 async def main():
     await init_db()
