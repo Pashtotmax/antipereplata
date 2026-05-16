@@ -22,6 +22,7 @@ roleplay_exit_counter = defaultdict(int)
 
 # ===================== БАЗА =====================
 async def init_db():
+    # Важно: файл базы теперь будет в постоянном хранилище (Volume)
     async with aiosqlite.connect('psychology.db') as db:
         await db.execute('''CREATE TABLE IF NOT EXISTS users
                            (user_id INTEGER PRIMARY KEY,
@@ -164,7 +165,6 @@ async def buy_subscription(message: types.Message):
         start_parameter="sub"
     )
 
-# ===================== ОБЯЗАТЕЛЬНЫЙ ХЭНДЛЕР ДЛЯ STARS =====================
 @dp.pre_checkout_query()
 async def pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
     await pre_checkout_query.answer(ok=True)
@@ -178,7 +178,7 @@ async def successful_payment(message: types.Message):
         await db.commit()
     await message.answer("✅ Подписка успешно активирована!\nТеперь у тебя 150 сообщений в сутки на 7 дней ❤️")
 
-# ===================== СТАТИСТИКА (только для тебя) =====================
+# ===================== СТАТИСТИКА =====================
 @dp.message(F.text == "📊 Статистика")
 async def admin_stats(message: types.Message):
     if message.from_user.id != ADMIN_ID:
