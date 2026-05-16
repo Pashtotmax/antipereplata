@@ -29,7 +29,7 @@ async def init_db():
                             messages_today INTEGER DEFAULT 0,
                             last_reset TEXT,
                             gender TEXT DEFAULT NULL)''')
-        
+       
         await db.execute('''CREATE TABLE IF NOT EXISTS history
                            (id INTEGER PRIMARY KEY AUTOINCREMENT,
                             user_id INTEGER,
@@ -99,7 +99,7 @@ async def can_send_message(user_id: int):
     async with aiosqlite.connect('psychology.db') as db:
         async with db.execute("SELECT subscribed_until, messages_today, last_reset FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
-            
+           
             if not row:
                 await db.execute("INSERT INTO users (user_id, messages_today, last_reset) VALUES (?, 0, ?)",
                                (user_id, datetime.now().date().isoformat()))
@@ -124,9 +124,9 @@ async def start(message: types.Message):
     user_context[user_id].clear()
     user_mode[user_id] = "normal"
     roleplay_exit_counter[user_id] = 0
-    
+   
     menu = admin_menu if user_id == ADMIN_ID else main_menu
-    
+   
     await message.answer(
         "Привет! ❤️\n\n"
         "Я — твой личный собеседник, который всегда на твоей стороне. "
@@ -151,7 +151,7 @@ async def buy_subscription(message: types.Message):
                 "Готов открыть сердце и получить настоящую поддержку?",
         parse_mode="HTML"
     )
-   
+  
     prices = [types.LabeledPrice(label="Подписка на 7 дней", amount=99)]
     await bot.send_invoice(
         chat_id=message.chat.id,
@@ -163,6 +163,11 @@ async def buy_subscription(message: types.Message):
         prices=prices,
         start_parameter="sub"
     )
+
+# ===================== ОБЯЗАТЕЛЬНЫЙ ХЭНДЛЕР ДЛЯ STARS =====================
+@dp.pre_checkout_query()
+async def pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
+    await pre_checkout_query.answer(ok=True)
 
 @dp.message(F.successful_payment)
 async def successful_payment(message: types.Message):
@@ -178,14 +183,14 @@ async def successful_payment(message: types.Message):
 async def admin_stats(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    
+   
     async with aiosqlite.connect('psychology.db') as db:
         async with db.execute("SELECT COUNT(*) FROM users") as c:
             total_users = (await c.fetchone())[0]
-        async with db.execute("SELECT COUNT(*) FROM users WHERE subscribed_until > ?", 
+        async with db.execute("SELECT COUNT(*) FROM users WHERE subscribed_until > ?",
                             (datetime.now().isoformat(),)) as c:
             premium_users = (await c.fetchone())[0]
-    
+   
     await message.answer(
         f"📊 Статистика бота\n\n"
         f"Всего пользователей: {total_users}\n"
@@ -240,11 +245,10 @@ async def ai_psychologist(message: types.Message):
 async def main():
     await init_db()
     print("🚀 AI Психолог Отношений запущен!")
-    
-    # Исправление TelegramConflictError
+   
     await bot.delete_webhook(drop_pending_updates=True)
     await asyncio.sleep(2)
-    
+   
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
